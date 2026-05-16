@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function roomData(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+    }
+
+    function inRoom(roomId) {
+      return signedIn() && request.auth.uid in roomData(roomId).playerUids;
+    }
+
+    function hostAndCodeUnchanged() {
+      return request.resource.data.hostUid == resource.data.hostUid
+        && request.resource.data.code == resource.data.code;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && request.auth.uid == userId;
+      allow delete: if false;
+
+      match /friends/{friendId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      match /friendInbox/{senderId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      match /roomInvites/{inviteId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
+
+      match /socialInbox/{id} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
+    }
+
+    // Username uniqueness ledger — server-only writes (Next.js Admin SDK).
+    match /usernameClaims/{claimId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /categories/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /cards/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Queue doc managed by Admin SDK + clients leaving queue (same uid).
+    match /matchmakingPool/{poolId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // Server-written redirect after pairing (Admin SDK). Client reads own doc only.
+    match /matchmakingResults/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    // Short join lookup: code -> roomId (any signed-in user can resolve a code to join).
+    // Client creates the room doc first, then this doc in separate commits: rules evaluate
+    // each write alone, so `exists(/rooms/{roomId})` is false if roomCodes is written in
+    // the same batch as the new room.
+    match /roomCodes/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['roomId'])
+        && exists(/databases/$(database)/documents/rooms/$(request.resource.data.roomId))
+        && get(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.hostUid == request.auth.uid;
+      allow update, delete: if signedIn()
+        && exists(/databases/$(database)/documents/rooms/$(resource.data.roomId))
+        && get(/databases/$(database)/documents/rooms/$(resource.data.roomId)).data.hostUid == request.auth.uid;
+    }
+
+    match /rooms/{roomId} {
+      // Lobby rooms with a free seat are readable to any signed-in user so code-based joins can run transactions.
+      // This is an MVP tradeoff; production often uses a Cloud Function join endpoint instead.
+      allow read: if signedIn() && (
+        request.auth.uid in resource.data.playerUids
+        || resource.data.openJoin == true
+        || (
+          resource.data.status == 'lobby'
+          && resource.data.playerUids is list
+          && resource.data.playerUids.size() < 2
+        )
+      );
+      allow create: if signedIn()
+        && request.resource.data.hostUid == request.auth.uid
+        && request.auth.uid in request.resource.data.playerUids
+        && request.resource.data.keys().hasAll([
+          'code','hostUid','players','playerUids','status','categoryId','tutorial',
+          'matchId','createdAt','lastActivityAt','cleanupAt','openJoin',
+          'questionTimerSec','answerTimerSec'
+        ]);
+      allow update: if signedIn() && hostAndCodeUnchanged() && (
+        inRoom(roomId)
+        || (
+          resource.data.status == 'lobby'
+          && resource.data.playerUids is list
+          && resource.data.playerUids.size() < 2
+          && request.resource.data.playerUids is list
+          && request.resource.data.playerUids.size() == resource.data.playerUids.size() + 1
+          && !(request.auth.uid in resource.data.playerUids)
+          && request.auth.uid in request.resource.data.playerUids
+        )
+      );
+      allow delete: if signedIn() && resource.data.hostUid == request.auth.uid;
+    }
+
+    match /rooms/{roomId}/messages/{msgId} {
+      allow read: if signedIn() && inRoom(roomId);
+      // All writes go through Next.js API routes using the Admin SDK (validation, anti-cheat).
+      allow create, update, delete: if false;
+    }
+
+    // Hidden card assignment: you may NOT read your own hidden assignment from the client.
+    match /rooms/{roomId}/playerCards/{playerUid} {
+      allow read: if signedIn() && request.auth.uid != playerUid && inRoom(roomId);
+      // Writes are performed only with the Firebase Admin SDK (see /api/game/start).
+      allow write: if false;
+    }
+
+    match /rooms/{roomId}/presence/{uid} {
+      allow read: if signedIn() && inRoom(roomId);
+      allow write: if signedIn() && request.auth.uid == uid && inRoom(roomId);
+    }
+
+    match /rooms/{roomId}/typing/{uid} {
+      allow read: if signedIn() && inRoom(roomId);
+      allow write: if signedIn() && request.auth.uid == uid && inRoom(roomId);
+    }
+
+    match /rooms/{roomId}/serverRate/{uid} {
+      allow read, write: if false;
+    }
+
+    // Match state mutations should go through Admin SDK. Clients read only.
+    // Allow reads either by `playerOrder` OR by room membership — during brief
+    // server transitions `playerOrder` can lag while clients already subscribe.
+    match /matches/{matchId} {
+      allow read: if signedIn() && (
+        (resource.data.playerOrder is list && request.auth.uid in resource.data.playerOrder)
+        || (
+          resource.data.roomId is string
+          && exists(/databases/$(database)/documents/rooms/$(resource.data.roomId))
+          && request.auth.uid in get(/databases/$(database)/documents/rooms/$(resource.data.roomId)).data.playerUids
+        )
+      );
+      allow write: if false;
+    }
+  }
+}

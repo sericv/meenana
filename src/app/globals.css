@@ -1,0 +1,341 @@
+@import "tailwindcss";
+
+/* ─── Font rendering — anti-aliased on all platforms ──────────────── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1, "calt" 1;
+}
+
+:root {
+  --background: #fff7ef;
+  --foreground: #5e3011;
+
+  /* 8pt spacing system — use via var(--gap-2), var(--gap-3) … */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 20px;
+  --gap-6: 24px;
+  --gap-8: 32px;
+  --gap-10: 40px;
+  --gap-12: 48px;
+
+  /* Safe-area shortcuts */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* Card aspect ratios — keep cards visually identical everywhere. */
+  --card-ratio: 3 / 4;
+  --card-ratio-square: 1 / 1;
+  --card-ratio-wide: 4 / 3;
+
+  /* Static dynamic viewport token for max-heights (cards, etc.). Do **not**
+     shrink this from JS to visualViewport.height — that fought `html` height
+     and caused empty bands on iOS when the keyboard opened. */
+  --app-vh: 100dvh;
+  /* Visual viewport offset (iOS); updated by useVisualViewport. */
+  --vv-top: 0px;
+  --vv-left: 0px;
+  --vv-width: 100%;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-tajawal), system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+}
+
+/* ─── App-shell: lock the page to the viewport and silence rubber-banding
+       so the game feels fixed (no rubber bounce, no chrome-bar shift). ─── */
+html,
+body {
+  min-height: 100dvh;
+}
+
+.app-shell {
+  background:
+    radial-gradient(circle at 10% 20%, #ffe4c8 0%, transparent 30%),
+    radial-gradient(circle at 90% 15%, #ffd7ab 0%, transparent 28%),
+    radial-gradient(circle at 85% 80%, #ffe9cf 0%, transparent 24%),
+    linear-gradient(180deg, #fff7ef 0%, #ffefdb 100%);
+  color: var(--foreground);
+  /* Stop iOS rubber-band overscroll inside the game shell. */
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Allow horizontal touch on chat scroll but prevent diagonal browser
+     gestures from hijacking the game. */
+  touch-action: manipulation;
+}
+
+::selection {
+  background: rgba(255, 162, 74, 0.35);
+}
+
+/* ─── No-zoom inputs ─────────────────────────────────────────────────
+   iOS Safari auto-zooms when a focused input's computed font-size is
+   below 16px. The `maximum-scale=1` viewport flag handles older iOS,
+   but we still enforce a 16px minimum on every interactive control as
+   a defensive belt-and-braces measure. Visually we still show smaller
+   text in chat bubbles — only the inputs themselves are forced 16px. */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+    line-height: 1.35 !important;
+  }
+}
+
+/* Disable iOS Safari's tap-highlight flash + double-tap zoom delay on
+   anything we treat as a touch target. */
+a,
+button,
+[role="button"],
+input,
+textarea,
+select,
+label {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ─── Card image system — uniform aspect ratio everywhere ─────────── */
+.card-frame {
+  aspect-ratio: var(--card-ratio);
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  contain: layout paint;
+}
+.card-frame > img,
+.card-frame > picture > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+/* For full-art cards that should not crop (custom uploads), authors can
+   add `data-fit="contain"` on the frame. */
+.card-frame[data-fit="contain"] > img {
+  object-fit: contain;
+  background: #fff8ee;
+}
+
+/* ─── Scroll containers — gentle inertia, no chain ────────────────── */
+.scroll-y {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  /* Reduce layout jumps when the composer/viewport height changes on mobile. */
+  overflow-anchor: none;
+}
+
+/* Hide native scrollbar while preserving scroll (used in chat lists). */
+.scroll-y-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.scroll-y-hidden {
+  scrollbar-width: none;
+}
+
+/* Chat message list: no smooth scroll (reduces jank with mobile keyboard). */
+.scroll-y-chat {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+  overflow-anchor: none;
+  scrollbar-width: none;
+}
+.scroll-y-chat::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* In-room opponent card max-heights use `--app-vh` (static 100dvh in :root). */
+.gameplay-opponent-card-visual {
+  aspect-ratio: 4 / 5;
+  max-height: min(240px, calc(var(--app-vh, 100dvh) * 0.26));
+}
+
+html.kbd-open .gameplay-opponent-card-visual {
+  max-height: min(200px, calc(var(--app-vh, 100dvh) * 0.2));
+}
+
+/* Compact in-room card — social layout gives most height to chat. */
+.gameplay-card-compact {
+  aspect-ratio: 4 / 5;
+  max-height: min(150px, calc(var(--app-vh, 100dvh) * 0.19));
+}
+
+html.kbd-open .gameplay-card-compact {
+  max-height: min(120px, calc(var(--app-vh, 100dvh) * 0.14));
+}
+
+/* Fixed-size opponent thumb in chat header (no aspect-ratio flex fights). */
+.gameplay-card-thumb {
+  height: 3.5rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 0.65rem;
+  overflow: hidden;
+}
+
+/* ─── Keyboard-safe footer: use ONLY on pages whose root height is still
+       the *layout* viewport (e.g. min-h-100dvh) so padding lifts content above
+       an overlay keyboard. Do NOT combine with an inner column already sized
+       to `var(--app-vh)` — that double-counts and collapses flex children. */
+.kbd-safe {
+  padding-bottom: calc(max(var(--safe-bottom), 8px) + var(--kbd-h, 0px));
+  transition: padding-bottom 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Safe-area only — correct footer inside `--app-vh`-sized gameplay shells. */
+.kbd-safe-area-only {
+  padding-bottom: max(var(--safe-bottom), 8px);
+}
+
+/* Sticky composer that hugs the keyboard. */
+.kbd-anchor {
+  position: sticky;
+  bottom: 0;
+  background: inherit;
+}
+
+/* ─── Premium glass surface — reusable across cards ──────────────── */
+.glass-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,250,244,0.96) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.88),
+    0 20px 48px rgba(196,134,82,0.14),
+    0 4px 12px rgba(196,134,82,0.07);
+  border: 1px solid rgba(244,196,141,0.45);
+}
+
+/* ─── Button gloss streak (applied by Button.tsx on primary) ──────── */
+.btn-gloss {
+  position: relative;
+  overflow: hidden;
+}
+.btn-gloss::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset-x: 16%;
+  top: 5px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.36);
+  filter: blur(1.5px);
+}
+
+/* ─── List item card — friend rows, search hits ───────────────────── */
+.list-item-card {
+  background: linear-gradient(135deg, rgba(255,255,255,0.98), rgba(255,252,246,0.96));
+  border: 1px solid rgba(244,196,141,0.38);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.75),
+    0 4px 14px rgba(196,134,82,0.10),
+    0 1px 3px rgba(196,134,82,0.06);
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+.list-item-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.8),
+    0 10px 28px rgba(196,134,82,0.18),
+    0 2px 8px rgba(196,134,82,0.10);
+  transform: translateY(-1px);
+}
+
+/* ─── Premium gameplay panel surface ─────────────────────────────── */
+.gameplay-panel {
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.99) 0%,
+    rgba(255, 248, 234, 0.97) 55%,
+    rgba(255, 235, 200, 0.95) 100%
+  );
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(244, 196, 141, 0.22),
+    0 8px 32px rgba(160, 80, 30, 0.11),
+    0 2px 8px rgba(160, 80, 30, 0.06),
+    0 0 0 1px rgba(244, 196, 141, 0.38);
+  border-radius: 24px;
+}
+
+/* ─── Chat bubble — my messages (right side, orange) ─────────────── */
+.chat-bubble-mine {
+  background: linear-gradient(135deg, #FF9F0A, #FF5C00);
+  color: #fff;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.35),
+    0 3px 0 #be4800,
+    0 6px 16px rgba(255, 107, 0, 0.28);
+}
+
+/* ─── Chat bubble — opponent messages (left side, cream) ─────────── */
+.chat-bubble-theirs {
+  background: linear-gradient(135deg, rgba(255,255,255,0.99), rgba(255,249,238,0.97));
+  color: #6f3714;
+  border-radius: 18px 18px 18px 4px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 0 1px rgba(244, 196, 141, 0.40),
+    0 4px 12px rgba(160, 80, 30, 0.08);
+}
+
+/* ─── System / guess result bubbles ──────────────────────────────── */
+.chat-bubble-system {
+  background: linear-gradient(135deg, rgba(255,252,245,0.98), rgba(255,244,224,0.96));
+  border: 1px solid rgba(244, 196, 141, 0.50);
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 2px 8px rgba(160, 80, 30, 0.07);
+}
+
+/* ─── Active player name pill — orange gradient ───────────────────── */
+.player-name-pill-active {
+  background: linear-gradient(135deg, #FF9F0A, #FF5500);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(255, 107, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+/* ─── Inactive player name pill — soft cream ─────────────────────── */
+.player-name-pill-idle {
+  background: rgba(244, 196, 141, 0.22);
+  color: #a16231;
+  border: 1px solid rgba(244, 196, 141, 0.45);
+}
+
+/* ─── Reduced motion friendliness ─────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
